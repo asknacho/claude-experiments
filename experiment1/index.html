@@ -83,24 +83,24 @@
     const ctx = canvas.getContext('2d');
 
     // ── Sprite sheet config ──────────────────────────────────────────────────
-    // Sprite sheet: 8 columns, 6 rows (plus ~32px title bar at top)
+    // Sprite sheet: 8 columns, 6 rows
     // Row 0 → walk down   (frames 0-3)
-    // Row 1 → walk left   (frames 0-3, canvas flip used for right)
+    // Row 1 → walk right  (frames 0-3, flipped for left)
     // Row 2 → walk up     (frames 0-3)
     const SHEET = {
       cols: 8,
       rows: 6,
-      titleBar: 32,    // pixel height of the title bar to skip
       walkFrames: 4,   // frames used per walk cycle
       fps: 8,          // animation frames per second
       scale: 0.5,      // scale sprite down to fit the SNES aesthetic
     };
 
     // Direction → { row, flipX }
+    // Row 1 faces RIGHT, so flip it for LEFT
     const DIR = {
       down:  { row: 0, flip: false },
-      left:  { row: 1, flip: false },
-      right: { row: 1, flip: true  },
+      left:  { row: 1, flip: true  },
+      right: { row: 1, flip: false },
       up:    { row: 2, flip: false },
     };
 
@@ -123,12 +123,34 @@
     let frameH = 0;
     let spriteW = 0;
     let spriteH = 0;
+    let processedSheet = null;
+
+    // Remove the checkered grey transparency background baked into the PNG
+    function removeCheckerboard(img) {
+      const oc = document.createElement('canvas');
+      oc.width  = img.width;
+      oc.height = img.height;
+      const ox = oc.getContext('2d');
+      ox.drawImage(img, 0, 0);
+      const id = ox.getImageData(0, 0, oc.width, oc.height);
+      const px = id.data;
+      const TOL = 28;
+      for (let i = 0; i < px.length; i += 4) {
+        const r = px[i], g = px[i+1], b = px[i+2];
+        // Neutral grey pixels (R≈G≈B) in the 120-215 range = checkerboard
+        const isNeutral = Math.abs(r-g) < TOL && Math.abs(g-b) < TOL && Math.abs(r-b) < TOL;
+        if (isNeutral && r > 120 && r < 215) px[i+3] = 0;
+      }
+      ox.putImageData(id, 0, 0);
+      return oc;
+    }
 
     sheet.onload = () => {
-      frameW  = sheet.width  / SHEET.cols;
-      frameH  = (sheet.height - SHEET.titleBar) / SHEET.rows;
-      spriteW = frameW  * SHEET.scale;
-      spriteH = frameH  * SHEET.scale;
+      frameW        = sheet.width  / SHEET.cols;
+      frameH        = sheet.height / SHEET.rows;
+      spriteW       = frameW  * SHEET.scale;
+      spriteH       = frameH  * SHEET.scale;
+      processedSheet = removeCheckerboard(sheet);
       loop(0);
     };
 
@@ -154,7 +176,7 @@
 
     // ── Draw sprite or fallback dot ───────────────────────────────────────────
     function drawSprite() {
-      if (!frameW) {
+      if (!frameW || !processedSheet) {
         // fallback dot
         ctx.fillStyle = '#f90';
         ctx.shadowColor = '#f90';
@@ -168,7 +190,7 @@
 
       const dir = DIR[facing];
       const srcX = frame * frameW;
-      const srcY = SHEET.titleBar + dir.row * frameH;
+      const srcY = dir.row * frameH;
 
       ctx.save();
 
@@ -176,13 +198,13 @@
         ctx.translate(x, y);
         ctx.scale(-1, 1);
         ctx.drawImage(
-          sheet,
+          processedSheet,
           srcX, srcY, frameW, frameH,
           -spriteW / 2, -spriteH / 2, spriteW, spriteH
         );
       } else {
         ctx.drawImage(
-          sheet,
+          processedSheet,
           srcX, srcY, frameW, frameH,
           x - spriteW / 2, y - spriteH / 2, spriteW, spriteH
         );
