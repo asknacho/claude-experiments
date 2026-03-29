@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dot Mover</title>
+  <title>Hipster Hippy Adventure</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -18,29 +18,14 @@
       font-family: monospace;
     }
 
-    #arena {
-      position: relative;
-      width: 600px;
-      height: 400px;
+    canvas {
+      display: block;
       border: 2px solid #444;
-      background: #1a1a1a;
-      overflow: hidden;
+      image-rendering: pixelated;
     }
 
-    #dot {
-      position: absolute;
-      width: 20px;
-      height: 20px;
-      background: #f90;
-      border-radius: 50%;
-      transform: translate(-50%, -50%);
-      box-shadow: 0 0 10px #f90, 0 0 20px #f904;
-      transition: left 0.05s, top 0.05s;
-    }
-
-    /* D-pad */
     #dpad {
-      margin-top: 24px;
+      margin-top: 20px;
       display: grid;
       grid-template-areas:
         ". up ."
@@ -52,11 +37,11 @@
     .btn {
       width: 56px;
       height: 56px;
-      background: #222;
+      background: #1a1a2e;
       border: 2px solid #555;
-      color: #ccc;
-      font-size: 22px;
-      border-radius: 8px;
+      color: #aaa;
+      font-size: 20px;
+      border-radius: 6px;
       cursor: pointer;
       display: flex;
       align-items: center;
@@ -67,9 +52,9 @@
     }
 
     .btn:active, .btn.pressed {
-      background: #f90;
-      border-color: #f90;
-      color: #111;
+      background: #4a3080;
+      border-color: #9060ff;
+      color: #fff;
     }
 
     #btn-up    { grid-area: up; }
@@ -77,18 +62,12 @@
     #btn-right { grid-area: right; }
     #btn-down  { grid-area: down; }
 
-    #hint {
-      margin-top: 16px;
-      color: #555;
-      font-size: 13px;
-    }
+    #hint { margin-top: 12px; color: #444; font-size: 12px; }
   </style>
 </head>
 <body>
 
-  <div id="arena">
-    <div id="dot"></div>
-  </div>
+  <canvas id="game" width="600" height="400"></canvas>
 
   <div id="dpad">
     <button class="btn" id="btn-up">▲</button>
@@ -97,52 +76,154 @@
     <button class="btn" id="btn-down">▼</button>
   </div>
 
-  <div id="hint">WASD or tap to move</div>
+  <div id="hint">WASD or d-pad to move</div>
 
   <script>
-    const dot = document.getElementById('dot');
-    const arena = document.getElementById('arena');
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
 
-    const STEP = 4;
-    const DOT_R = 10;
-
-    let x = arena.offsetWidth / 2;
-    let y = arena.offsetHeight / 2;
-
-    const keys = { w: false, a: false, s: false, d: false };
-    const btnMap = {
-      'btn-up':    'w',
-      'btn-left':  'a',
-      'btn-right': 'd',
-      'btn-down':  's'
+    // ── Sprite sheet config ──────────────────────────────────────────────────
+    // Sprite sheet: 8 columns, 6 rows (plus ~32px title bar at top)
+    // Row 0 → walk down   (frames 0-3)
+    // Row 1 → walk left   (frames 0-3, canvas flip used for right)
+    // Row 2 → walk up     (frames 0-3)
+    const SHEET = {
+      cols: 8,
+      rows: 6,
+      titleBar: 32,    // pixel height of the title bar to skip
+      walkFrames: 4,   // frames used per walk cycle
+      fps: 8,          // animation frames per second
+      scale: 0.5,      // scale sprite down to fit the SNES aesthetic
     };
 
-    function clamp(val, min, max) {
-      return Math.max(min, Math.min(max, val));
+    // Direction → { row, flipX }
+    const DIR = {
+      down:  { row: 0, flip: false },
+      left:  { row: 1, flip: false },
+      right: { row: 1, flip: true  },
+      up:    { row: 2, flip: false },
+    };
+
+    // ── Game state ───────────────────────────────────────────────────────────
+    const SPEED = 3;
+    let x = canvas.width  / 2;
+    let y = canvas.height / 2;
+    let facing  = 'down';
+    let moving  = false;
+    let frame   = 0;
+    let lastFrameTime = 0;
+
+    const keys = { w: false, a: false, s: false, d: false };
+
+    // ── Sprite image ─────────────────────────────────────────────────────────
+    const sheet = new Image();
+    sheet.src = 'sprite.png';
+
+    let frameW = 0;
+    let frameH = 0;
+    let spriteW = 0;
+    let spriteH = 0;
+
+    sheet.onload = () => {
+      frameW  = sheet.width  / SHEET.cols;
+      frameH  = (sheet.height - SHEET.titleBar) / SHEET.rows;
+      spriteW = frameW  * SHEET.scale;
+      spriteH = frameH  * SHEET.scale;
+      loop(0);
+    };
+
+    sheet.onerror = () => {
+      // Fallback: draw orange dot if sprite not found
+      spriteW = 24;
+      spriteH = 24;
+      loop(0);
+    };
+
+    // ── Background (simple grassy SNES look) ─────────────────────────────────
+    function drawBg() {
+      ctx.fillStyle = '#3a6b35';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // subtle tile grid
+      ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+      ctx.lineWidth = 1;
+      const tile = 32;
+      for (let tx = 0; tx < canvas.width;  tx += tile) ctx.strokeRect(tx, 0, tile, canvas.height);
+      for (let ty = 0; ty < canvas.height; ty += tile) ctx.strokeRect(0, ty, canvas.width, tile);
     }
 
-    function render() {
-      dot.style.left = x + 'px';
-      dot.style.top  = y + 'px';
+    // ── Draw sprite or fallback dot ───────────────────────────────────────────
+    function drawSprite() {
+      if (!frameW) {
+        // fallback dot
+        ctx.fillStyle = '#f90';
+        ctx.shadowColor = '#f90';
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.arc(x, y, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        return;
+      }
+
+      const dir = DIR[facing];
+      const srcX = frame * frameW;
+      const srcY = SHEET.titleBar + dir.row * frameH;
+
+      ctx.save();
+
+      if (dir.flip) {
+        ctx.translate(x, y);
+        ctx.scale(-1, 1);
+        ctx.drawImage(
+          sheet,
+          srcX, srcY, frameW, frameH,
+          -spriteW / 2, -spriteH / 2, spriteW, spriteH
+        );
+      } else {
+        ctx.drawImage(
+          sheet,
+          srcX, srcY, frameW, frameH,
+          x - spriteW / 2, y - spriteH / 2, spriteW, spriteH
+        );
+      }
+
+      ctx.restore();
     }
 
-    function update() {
-      const w = arena.offsetWidth;
-      const h = arena.offsetHeight;
+    // ── Main loop ─────────────────────────────────────────────────────────────
+    function loop(ts) {
+      // Movement
+      const W = canvas.width;
+      const H = canvas.height;
+      const hw = (spriteW || 12) / 2;
+      const hh = (spriteH || 12) / 2;
 
-      if (keys.w) y -= STEP;
-      if (keys.s) y += STEP;
-      if (keys.a) x -= STEP;
-      if (keys.d) x += STEP;
+      moving = false;
+      if (keys.w) { y -= SPEED; facing = 'up';    moving = true; }
+      if (keys.s) { y += SPEED; facing = 'down';  moving = true; }
+      if (keys.a) { x -= SPEED; facing = 'left';  moving = true; }
+      if (keys.d) { x += SPEED; facing = 'right'; moving = true; }
 
-      x = clamp(x, DOT_R, w - DOT_R);
-      y = clamp(y, DOT_R, h - DOT_R);
+      x = Math.max(hw, Math.min(W - hw, x));
+      y = Math.max(hh, Math.min(H - hh, y));
 
-      render();
-      requestAnimationFrame(update);
+      // Advance animation frame
+      const frameDuration = 1000 / SHEET.fps;
+      if (moving && ts - lastFrameTime > frameDuration) {
+        frame = (frame + 1) % SHEET.walkFrames;
+        lastFrameTime = ts;
+      }
+      if (!moving) frame = 0;
+
+      // Draw
+      drawBg();
+      drawSprite();
+
+      requestAnimationFrame(loop);
     }
 
-    // Keyboard
+    // ── Input: keyboard ───────────────────────────────────────────────────────
     document.addEventListener('keydown', e => {
       const k = e.key.toLowerCase();
       if (k in keys) { keys[k] = true; e.preventDefault(); }
@@ -152,23 +233,25 @@
       if (k in keys) keys[k] = false;
     });
 
-    // D-pad buttons (mouse + touch)
+    // ── Input: d-pad ──────────────────────────────────────────────────────────
+    const btnMap = {
+      'btn-up':    'w',
+      'btn-left':  'a',
+      'btn-right': 'd',
+      'btn-down':  's',
+    };
+
     Object.entries(btnMap).forEach(([id, key]) => {
       const btn = document.getElementById(id);
-
-      const press = () => { keys[key] = true; btn.classList.add('pressed'); };
+      const press   = () => { keys[key] = true;  btn.classList.add('pressed'); };
       const release = () => { keys[key] = false; btn.classList.remove('pressed'); };
 
       btn.addEventListener('mousedown',  press);
       btn.addEventListener('mouseup',    release);
       btn.addEventListener('mouseleave', release);
-
       btn.addEventListener('touchstart', e => { e.preventDefault(); press(); },   { passive: false });
       btn.addEventListener('touchend',   e => { e.preventDefault(); release(); }, { passive: false });
     });
-
-    render();
-    requestAnimationFrame(update);
   </script>
 </body>
 </html>
