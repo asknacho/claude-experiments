@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dot Mover</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #111;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+      font-family: monospace;
+    }
+
+    #arena {
+      position: relative;
+      width: 600px;
+      height: 400px;
+      border: 2px solid #444;
+      background: #1a1a1a;
+      overflow: hidden;
+    }
+
+    #dot {
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      background: #f90;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      box-shadow: 0 0 10px #f90, 0 0 20px #f904;
+      transition: left 0.05s, top 0.05s;
+    }
+
+    /* D-pad */
+    #dpad {
+      margin-top: 24px;
+      display: grid;
+      grid-template-areas:
+        ". up ."
+        "left . right"
+        ". down .";
+      gap: 6px;
+    }
+
+    .btn {
+      width: 56px;
+      height: 56px;
+      background: #222;
+      border: 2px solid #555;
+      color: #ccc;
+      font-size: 22px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+
+    .btn:active, .btn.pressed {
+      background: #f90;
+      border-color: #f90;
+      color: #111;
+    }
+
+    #btn-up    { grid-area: up; }
+    #btn-left  { grid-area: left; }
+    #btn-right { grid-area: right; }
+    #btn-down  { grid-area: down; }
+
+    #hint {
+      margin-top: 16px;
+      color: #555;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="arena">
+    <div id="dot"></div>
+  </div>
+
+  <div id="dpad">
+    <button class="btn" id="btn-up">▲</button>
+    <button class="btn" id="btn-left">◀</button>
+    <button class="btn" id="btn-right">▶</button>
+    <button class="btn" id="btn-down">▼</button>
+  </div>
+
+  <div id="hint">WASD or tap to move</div>
+
+  <script>
+    const dot = document.getElementById('dot');
+    const arena = document.getElementById('arena');
+
+    const STEP = 4;
+    const DOT_R = 10;
+
+    let x = arena.offsetWidth / 2;
+    let y = arena.offsetHeight / 2;
+
+    const keys = { w: false, a: false, s: false, d: false };
+    const btnMap = {
+      'btn-up':    'w',
+      'btn-left':  'a',
+      'btn-right': 'd',
+      'btn-down':  's'
+    };
+
+    function clamp(val, min, max) {
+      return Math.max(min, Math.min(max, val));
+    }
+
+    function render() {
+      dot.style.left = x + 'px';
+      dot.style.top  = y + 'px';
+    }
+
+    function update() {
+      const w = arena.offsetWidth;
+      const h = arena.offsetHeight;
+
+      if (keys.w) y -= STEP;
+      if (keys.s) y += STEP;
+      if (keys.a) x -= STEP;
+      if (keys.d) x += STEP;
+
+      x = clamp(x, DOT_R, w - DOT_R);
+      y = clamp(y, DOT_R, h - DOT_R);
+
+      render();
+      requestAnimationFrame(update);
+    }
+
+    // Keyboard
+    document.addEventListener('keydown', e => {
+      const k = e.key.toLowerCase();
+      if (k in keys) { keys[k] = true; e.preventDefault(); }
+    });
+    document.addEventListener('keyup', e => {
+      const k = e.key.toLowerCase();
+      if (k in keys) keys[k] = false;
+    });
+
+    // D-pad buttons (mouse + touch)
+    Object.entries(btnMap).forEach(([id, key]) => {
+      const btn = document.getElementById(id);
+
+      const press = () => { keys[key] = true; btn.classList.add('pressed'); };
+      const release = () => { keys[key] = false; btn.classList.remove('pressed'); };
+
+      btn.addEventListener('mousedown',  press);
+      btn.addEventListener('mouseup',    release);
+      btn.addEventListener('mouseleave', release);
+
+      btn.addEventListener('touchstart', e => { e.preventDefault(); press(); },   { passive: false });
+      btn.addEventListener('touchend',   e => { e.preventDefault(); release(); }, { passive: false });
+    });
+
+    render();
+    requestAnimationFrame(update);
+  </script>
+</body>
+</html>
