@@ -123,6 +123,7 @@
     let frameH = 0;
     let spriteW = 0;
     let spriteH = 0;
+    let titleBarH = 0;
     let processedSheet = null;
 
     // Remove the checkered grey transparency background baked into the PNG
@@ -145,12 +146,28 @@
       return oc;
     }
 
+    // Scan down to find the first row that has a visible (non-transparent) pixel
+    // so we skip the title bar automatically
+    function detectSpriteStart(canvas) {
+      const cx = canvas.getContext('2d');
+      const { width, height } = canvas;
+      const id = cx.getImageData(0, 0, width, height);
+      const px = id.data;
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          if (px[(y * width + x) * 4 + 3] > 30) return y;
+        }
+      }
+      return 0;
+    }
+
     sheet.onload = () => {
-      frameW        = sheet.width  / SHEET.cols;
-      frameH        = sheet.height / SHEET.rows;
-      spriteW       = frameW  * SHEET.scale;
-      spriteH       = frameH  * SHEET.scale;
       processedSheet = removeCheckerboard(sheet);
+      titleBarH = detectSpriteStart(processedSheet);
+      frameW = sheet.width  / SHEET.cols;
+      frameH = (sheet.height - titleBarH) / SHEET.rows;
+      spriteW = frameW  * SHEET.scale;
+      spriteH = frameH  * SHEET.scale;
       loop(0);
     };
 
@@ -190,7 +207,7 @@
 
       const dir = DIR[facing];
       const srcX = frame * frameW;
-      const srcY = dir.row * frameH;
+      const srcY = titleBarH + dir.row * frameH;
 
       ctx.save();
 
@@ -271,8 +288,9 @@
       btn.addEventListener('mousedown',  press);
       btn.addEventListener('mouseup',    release);
       btn.addEventListener('mouseleave', release);
-      btn.addEventListener('touchstart', e => { e.preventDefault(); press(); },   { passive: false });
-      btn.addEventListener('touchend',   e => { e.preventDefault(); release(); }, { passive: false });
+      btn.addEventListener('touchstart',  e => { e.preventDefault(); press(); },   { passive: false });
+      btn.addEventListener('touchend',    e => { e.preventDefault(); release(); }, { passive: false });
+      btn.addEventListener('touchcancel', e => { e.preventDefault(); release(); }, { passive: false });
     });
   </script>
 </body>
